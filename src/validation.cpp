@@ -62,8 +62,6 @@
 #define MICRO 0.000001
 #define MILLI 0.001
 
-CScript devScript;
-
 /**
  * Global state
  */
@@ -329,6 +327,61 @@ static void FindFilesToPruneManual(std::set<int>& setFilesToPrune, int nManualPr
 static void FindFilesToPrune(std::set<int>& setFilesToPrune, uint64_t nPruneAfterHeight);
 bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsViewCache &inputs, bool fScriptChecks, unsigned int flags, bool cacheSigStore, bool cacheFullScriptStore, PrecomputedTransactionData& txdata, std::vector<CScriptCheck> *pvChecks = nullptr);
 static FILE* OpenUndoFile(const CDiskBlockPos &pos, bool fReadOnly = false);
+
+//////////////////////////////////////////////////////////////////////////////
+// Blockheight at which we enable SIN
+const int nSinHeightFinalnet = 200;
+const int nSinHeightTestnet  = 100000;
+const int nSinHeightMainnet  = 165000;
+
+// Devaddress for SIN environment
+const char *nPreSinPubKey   = "841e6bf56b99a59545da932de2efb23ab93b4f44";
+const char *nPreSinAddress  = "SZLafuDjnjqh2tAfTrG9ZAGzbP8HkzNXvB";
+const char *nPostSinPubKey  = "1c6d12e4f8e595d393f6cd4eac6d0c0de3f075f8";
+const char *nPostSinAddress = "SPtJco1H1yXhxNCmYk7ZVURXR7ZavYzPxS";
+
+//////////////////////////////////////////////////////////////////////////////
+//  Mode toggle for SIN
+
+bool IsSin()
+{
+    bool fSinMode = false;
+    int nHeight = chainActive.Height();
+
+    if (Params().NetworkIDString() == CBaseChainParams::MAIN &&
+        nHeight >= nSinHeightMainnet)
+        fSinMode = true;
+
+    if (Params().NetworkIDString() == CBaseChainParams::TESTNET &&
+        nHeight >= nSinHeightTestnet)
+        fSinMode = true;
+
+    if (Params().NetworkIDString() == CBaseChainParams::FINALNET &&
+        nHeight >= nSinHeightFinalnet)
+        fSinMode = true;
+
+    return fSinMode;
+}
+
+const char* DevAddressForEnvironment()
+{
+    if (!IsSin())
+       return nPreSinAddress;
+    else
+       return nPostSinAddress;
+}
+
+CScript DevScriptForEnvironment()
+{
+    CScript devScript;
+    if (!IsSin())
+       devScript << OP_DUP << OP_HASH160 << ParseHex(nPreSinPubKey) << OP_EQUALVERIFY << OP_CHECKSIG;
+    else
+       devScript << OP_DUP << OP_HASH160 << ParseHex(nPostSinPubKey) << OP_EQUALVERIFY << OP_CHECKSIG;
+    return devScript;
+}
+
+//////////////////////////////////////////////////////////////////////////////
 
 bool CheckFinalTx(const CTransaction &tx, int flags)
 {
@@ -1144,7 +1197,7 @@ static bool WriteBlockToDisk(const CBlock& block, CDiskBlockPos& pos, const CMes
     return true;
 }
 
-bool ReadBlockFromDisk(CBlock& block, const CDiskBlockPos& pos, int nHeight, const Consensus::Params& consensusParams)
+bool ReadBlockFromDisk(CBlock& block, const CDiskBlockPos& pos, const Consensus::Params& consensusParams)
 {
     block.SetNull();
 
@@ -1162,7 +1215,7 @@ bool ReadBlockFromDisk(CBlock& block, const CDiskBlockPos& pos, int nHeight, con
     }
 
     // Check the header
-    if (!CheckProofOfWork(block.GetPoWHash(nHeight), block.nBits, consensusParams))
+    if (!CheckProofOfWork(block.GetPoWHash(IsSin()), block.nBits, consensusParams))
         return error("ReadBlockFromDisk: Errors in block header at %s", pos.ToString());
 
     return true;
@@ -1176,9 +1229,7 @@ bool ReadBlockFromDisk(CBlock& block, const CBlockIndex* pindex, const Consensus
         blockPos = pindex->GetBlockPos();
     }
 
-    int nHeight = pindex->nHeight;
-
-    if (!ReadBlockFromDisk(block, blockPos, nHeight, consensusParams))
+    if (!ReadBlockFromDisk(block, blockPos, consensusParams))
         return false;
     if (block.GetHash() != pindex->GetBlockHash())
         return error("ReadBlockFromDisk(CBlock&, CBlockIndex*): GetHash() doesn't match index for %s at %s",
@@ -2222,16 +2273,21 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
     LogPrint(BCLog::BENCH, "      - Connect %u transactions: %.2fms (%.3fms/tx, %.3fms/txin) [%.2fs (%.2fms/blk)]\n", (unsigned)block.vtx.size(), MILLI * (nTime3 - nTime2), MILLI * (nTime3 - nTime2) / block.vtx.size(), nInputs <= 1 ? 0 : MILLI * (nTime3 - nTime2) / (nInputs-1), nTimeConnect * MICRO, nTimeConnect * MILLI / nBlocksTotal);
 
     CAmount blockReward = nFees + GetBlockSubsidy(pindex->nHeight, chainparams.GetConsensus());
+
+#if 0
     if (block.vtx[0]->GetValueOut() > blockReward + GetDevCoin(blockReward))
         return state.DoS(100,
                          error("ConnectBlock(): coinbase pays too much (actual=%d vs limit=%d)",
                                block.vtx[0]->GetValueOut(), blockReward + GetDevCoin(blockReward)),
                                REJECT_INVALID, "bad-cb-amount");
+#endif
 
     // verify devfund addr and amount are correct
-    if (block.vtx[0]->vout[1].scriptPubKey != devScript)
+    CScript testReward = DevScriptForEnvironment();
+    if (block.vtx[0]->vout[1].scriptPubKey != testReward)
         return state.DoS(100, error("ConnectBlock(): coinbase does not pay to the dev fund address."), REJECT_INVALID, "bad-cb-dev-fee");
 	LogPrintf("Miner -- Dev fee paid: %d, Calcul dev fee %d\n", block.vtx[0]->vout[1].nValue, GetDevCoin(blockReward));
+
     if (block.vtx[0]->vout[1].nValue < GetDevCoin(blockReward))
         return state.DoS(100, error("ConnectBlock(): coinbase does not pay enough to the dev fund address."), REJECT_INVALID, "bad-cb-dev-fee");
 
@@ -2456,10 +2512,10 @@ void static UpdateTip(const CBlockIndex *pindexNew, const CChainParams& chainPar
             DoWarning(strWarning);
         }
     }
-    LogPrintf("%s: new best=%s height=%d version=0x%08x log2_work=%.8g tx=%lu date='%s' progress=%f cache=%.1fMiB(%utxo)", __func__, /* Continued */
+    LogPrintf("%s: new best=%s height=%d version=0x%08x log2_work=%.8g tx=%lu sin=%s date='%s' progress=%f cache=%.1fMiB(%utxo)", __func__, /* Continued */
       pindexNew->GetBlockHash().ToString(), pindexNew->nHeight, pindexNew->nVersion,
       log(pindexNew->nChainWork.getdouble())/log(2.0), (unsigned long)pindexNew->nChainTx,
-      FormatISO8601DateTime(pindexNew->GetBlockTime()),
+      IsSin() ? "Y" : "N", FormatISO8601DateTime(pindexNew->GetBlockTime()),
       GuessVerificationProgress(chainParams.TxData(), pindexNew), pcoinsTip->DynamicMemoryUsage() * (1.0 / (1<<20)), pcoinsTip->GetCacheSize());
     if (!warningMessages.empty())
         LogPrintf(" warning='%s'", warningMessages); /* Continued */
@@ -3306,11 +3362,8 @@ static bool FindUndoPos(CValidationState &state, int nFile, CDiskBlockPos &pos, 
 
 static bool CheckBlockHeader(const CBlockHeader& block, CValidationState& state, const Consensus::Params& consensusParams, bool fCheckPOW = true)
 {
-    // Get prev block index
-    int nHeight = chainActive.Height()+1;
-
     // Check proof of work matches claimed amount
-    if (fCheckPOW && !CheckProofOfWork(block.GetPoWHash(nHeight), block.nBits, consensusParams))
+    if (fCheckPOW && !CheckProofOfWork(block.GetPoWHash(IsSin()), block.nBits, consensusParams))
         return state.DoS(50, false, REJECT_INVALID, "high-hash", false, "proof of work failed");
 
     return true;
@@ -4565,8 +4618,6 @@ void UnloadBlockIndex()
 
 bool LoadBlockIndex(const CChainParams& chainparams)
 {
-    devScript << OP_DUP << OP_HASH160 << ParseHex(chainparams.GetConsensus().devAddressPubKey) << OP_EQUALVERIFY << OP_CHECKSIG;
-
     // Load block index from databases
     bool needs_init = fReindex;
     if (!fReindex) {
@@ -4710,7 +4761,7 @@ bool LoadExternalBlockFile(const CChainParams& chainparams, FILE* fileIn, CDiskB
                     while (range.first != range.second) {
                         std::multimap<uint256, CDiskBlockPos>::iterator it = range.first;
                         std::shared_ptr<CBlock> pblockrecursive = std::make_shared<CBlock>();
-                        if (ReadBlockFromDisk(*pblockrecursive, it->second, chainActive.Height(), chainparams.GetConsensus()))
+                        if (ReadBlockFromDisk(*pblockrecursive, it->second, chainparams.GetConsensus()))
                         {
                             LogPrint(BCLog::REINDEX, "%s: Processing out of order child %s of %s\n", __func__, pblockrecursive->GetHash().ToString(),
                                     head.ToString());
