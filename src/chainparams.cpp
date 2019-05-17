@@ -156,7 +156,7 @@ public:
         assert(consensus.hashGenesisBlock == uint256S("000032bd27c65ec42967b7854a49df222abdfae8d9350a61083af8eab2a25e03"));
         assert(genesis.hashMerkleRoot == uint256S("c3555790e3804130514a674f3374b451dce058407dad6b9e82e191e198012680"));
 
-        vSeeds.push_back("sinexplorer.com");
+        vSeeds.push_back("suqaexplorer.com");
         vSeeds.push_back("139.59.139.105");
         vSeeds.push_back("104.248.133.94");
         vSeeds.push_back("104.248.17.3");
