@@ -9,7 +9,6 @@
 #include <tinyformat.h>
 #include <utilstrencodings.h>
 #include <crypto/common.h>
-#include "logging.h"
 
 uint256 CBlockHeader::GetHash() const
 {
@@ -18,13 +17,8 @@ uint256 CBlockHeader::GetHash() const
 
 uint256 CBlockHeader::GetPoWHash(int nHeight) const
 {
-		if (nHeight >= 165000) {
-			LogPrintf("Hashing with X25X\n");
-			return HashX25X(BEGIN(nVersion), END(nNonce));
-    } else {
-			LogPrintf("Hashing with X22I\n");
-			return HashX22I(BEGIN(nVersion), END(nNonce));
-		}
+    // printf("%d\n", nHeight);
+    return HashX22I(BEGIN(nVersion), END(nNonce));
 }
 
 std::string CBlock::ToString() const
