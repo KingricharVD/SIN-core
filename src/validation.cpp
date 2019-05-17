@@ -2274,13 +2274,11 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
 
     CAmount blockReward = nFees + GetBlockSubsidy(pindex->nHeight, chainparams.GetConsensus());
 
-#if 0
     if (block.vtx[0]->GetValueOut() > blockReward + GetDevCoin(blockReward))
         return state.DoS(100,
                          error("ConnectBlock(): coinbase pays too much (actual=%d vs limit=%d)",
                                block.vtx[0]->GetValueOut(), blockReward + GetDevCoin(blockReward)),
                                REJECT_INVALID, "bad-cb-amount");
-#endif
 
     // verify devfund addr and amount are correct
     CScript testReward = DevScriptForEnvironment();
