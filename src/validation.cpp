@@ -330,7 +330,7 @@ static FILE* OpenUndoFile(const CDiskBlockPos &pos, bool fReadOnly = false);
 
 //////////////////////////////////////////////////////////////////////////////
 // Blockheight at which we enable SIN
-const int nSinHeightFinalnet = 200;
+const int nSinHeightFinalnet = 50;
 const int nSinHeightTestnet  = 100000;
 const int nSinHeightMainnet  = 165000;
 
@@ -1213,6 +1213,9 @@ bool ReadBlockFromDisk(CBlock& block, const CDiskBlockPos& pos, const Consensus:
     catch (const std::exception& e) {
         return error("%s: Deserialize or I/O error - %s at %s", __func__, e.what(), pos.ToString());
     }
+
+    // Debug
+    LogPrintf("Testing block as %s..\n", IsSin() ? "X25X" : "X22I");
 
     // Check the header
     if (!CheckProofOfWork(block.GetPoWHash(IsSin()), block.nBits, consensusParams))

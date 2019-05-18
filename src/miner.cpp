@@ -598,7 +598,7 @@ void static SINMiner(const CChainParams& chainparams, CConnman& connman)
                 uint256 hash;
                 while (true)
                 {
-                    hash = pblock->GetHash();
+                    hash = pblock->GetPoWHash(IsSin());
                     if (UintToArith256(hash) <= hashTarget)
                     {
                         // Found a solution
